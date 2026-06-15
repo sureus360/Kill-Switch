@@ -79,11 +79,12 @@ final class FritzBoxClient {
 
     void setBlocked(NetworkDevice device, boolean blocked) throws Exception {
         discoverServices();
-        if (TextTools.isBlank(device.ipAddress)) {
+        String targetIp = resolveCurrentIp(device);
+        if (TextTools.isBlank(targetIp)) {
             throw new FritzException("Das Geraet hat keine IPv4-Adresse.");
         }
         Map<String, String> arguments = new LinkedHashMap<>();
-        arguments.put("NewIPv4Address", device.ipAddress);
+        arguments.put("NewIPv4Address", targetIp);
         arguments.put("NewDisallow", blocked ? "1" : "0");
         soap(
                 hostFilterService,
@@ -95,7 +96,7 @@ final class FritzBoxClient {
         AccessState lastState = null;
         while (System.currentTimeMillis() < deadline) {
             Thread.sleep(ACCESS_CHANGE_POLL_MS);
-            lastState = getAccessState(device.ipAddress);
+            lastState = getAccessState(targetIp);
             if (lastState.disallowed == blocked
                     && (blocked ? lastState.blocked : !lastState.blocked)) {
                 return;
@@ -113,6 +114,23 @@ final class FritzBoxClient {
                         ? "Die FRITZ!Box hat die Internetsperre nach 20 Sekunden nicht bestaetigt."
                         : "Die FRITZ!Box hat die Freigabe nach 20 Sekunden nicht bestaetigt."
         );
+    }
+
+    private String resolveCurrentIp(NetworkDevice device) {
+        if (TextTools.isBlank(device.macAddress)) {
+            return device.ipAddress;
+        }
+        try {
+            Document response = soap(
+                    hostsService,
+                    "GetSpecificHostEntry",
+                    Collections.singletonMap("NewMACAddress", device.macAddress)
+            );
+            String currentIp = text(response, "NewIPAddress");
+            return TextTools.isBlank(currentIp) ? device.ipAddress : currentIp;
+        } catch (Exception ignored) {
+            return device.ipAddress;
+        }
     }
 
     private AccessState getAccessState(String ipAddress) throws Exception {

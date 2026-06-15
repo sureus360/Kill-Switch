@@ -21,6 +21,18 @@ bleibt weiterhin mit dem lokalen LAN oder WLAN verbunden. Die App wartet nach
 einer Aktion auf die Bestaetigung der FRITZ!Box und zeigt nur einen geaenderten
 Status, wenn die Sperre oder Freigabe tatsaechlich aktiv ist.
 
+## Funktionen
+
+- Suche und Favoriten fuer Netzwerkgeraete
+- Mehrfachauswahl zum gemeinsamen Sperren oder Freigeben
+- Frei einstellbare Sperrdauer in Minuten
+- Automatische Freigabe zu einer gewaehlten Uhrzeit
+- Wiederherstellung geplanter Freigaben nach einem Neustart
+
+Android kann geplante Aktionen im Energiesparmodus verzoegern. Fuer eine
+moeglichst puenktliche Freigabe kann der App der Zugriff auf exakte Alarme
+erlaubt werden.
+
 ## Build
 
 ```powershell
