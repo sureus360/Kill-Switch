@@ -6,6 +6,7 @@ import android.app.TimePickerDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -47,6 +48,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
+    private static final String APP_NAME = "FritzBox Kill Switch";
+    private static final String APP_TITLE = "FRITZBOX KILL SWITCH";
     private static final int BG = Color.rgb(3, 7, 5);
     private static final int PANEL = Color.rgb(8, 18, 12);
     private static final int PANEL_ACTIVE = Color.rgb(10, 31, 18);
@@ -194,9 +197,9 @@ public final class MainActivity extends Activity {
         titles.setOrientation(LinearLayout.VERTICAL);
         header.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-        TextView title = label("KILL SWITCH", 28, GREEN);
+        TextView title = label(APP_TITLE, 22, GREEN);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        title.setLetterSpacing(0.12f);
+        title.setLetterSpacing(0.08f);
         titles.addView(title);
 
         status = label("● OFFLINE", 11, RED);
@@ -241,7 +244,7 @@ public final class MainActivity extends Activity {
         LinearLayout footer = new LinearLayout(this);
         footer.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView notice = label("WAN-ZUGRIFF // NUR LOKALES NETZ", 10, MUTED);
+        TextView notice = label("WAN-ZUGRIFF // NUR LOKALES NETZ // v" + appVersionName(), 10, MUTED);
         footer.addView(notice, new LinearLayout.LayoutParams(0, dp(42), 1));
         notice.setGravity(Gravity.CENTER_VERTICAL);
 
@@ -583,9 +586,9 @@ public final class MainActivity extends Activity {
         form.setPadding(dp(24), dp(8), dp(24), 0);
 
         TextView hint = label(
-                "Lokale TR-064-Verbindung. Trage hier gezielt den FRITZ!Box-Benutzer ein, "
-                        + "der die App verwenden soll. Das Lesen kann auch ohne Schreibrecht "
-                        + "funktionieren; zum Sperren braucht der Benutzer App-Rechte.",
+                "Lokale TR-064-Verbindung. Trage hier exakt den FRITZ!Box-Benutzernamen ein, "
+                        + "der die App verwenden soll. Die App muss nicht zwingend in der "
+                        + "FRITZ!Box-App-Liste auftauchen; zum Sperren braucht dieser Benutzer App-Rechte.",
                 12,
                 Color.DKGRAY
         );
@@ -600,7 +603,7 @@ public final class MainActivity extends Activity {
         form.addView(password, wide(dp(54)));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("VERBINDUNG KONFIGURIEREN")
+                .setTitle(APP_NAME + " v" + appVersionName())
                 .setView(form)
                 .setNegativeButton("ABBRECHEN", null)
                 .setPositiveButton("SPEICHERN + SCAN", null)
@@ -741,6 +744,15 @@ public final class MainActivity extends Activity {
                 || normalized.contains("benutzer")
                 || normalized.contains("app-rechte")
                 || normalized.contains("einstellungsrechte");
+    }
+
+    private String appVersionName() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return info.versionName == null ? "?" : info.versionName;
+        } catch (Exception ignored) {
+            return "?";
+        }
     }
 
     private Button actionButton(String text, int borderColor) {
