@@ -1,6 +1,6 @@
-# FritzBox Kill Switch
+# Router Kill Switch
 
-Aktuelle Version: `1.1.2`
+Aktuelle Version: `1.1.3`
 
 Native Android-App zum Sperren und Entsperren des Internetzugriffs von
 Netzwerkgeraeten an einer FRITZ!Box. Die App nutzt ausschliesslich die lokale
@@ -15,7 +15,7 @@ verschluesselt und nicht aus dem Heimnetz gesendet.
    Geraeteliste kann auch dann funktionieren, wenn diesem Benutzer die zum
    Sperren benoetigten Schreibrechte fehlen.
 3. Das Android-Geraet mit demselben WLAN verbinden.
-4. FritzBox Kill Switch starten, `[ CONFIG ]` antippen und Router-Adresse,
+4. Router Kill Switch starten, `[ CONFIG ]` antippen und Router-Adresse,
    Benutzername und Passwort eingeben.
 
 Wenn die Geraeteliste funktioniert, das Sperren aber mit `Action Not Authorized`
@@ -49,7 +49,8 @@ erlaubt werden.
 ## Versionierung
 
 Ab `1.1.2` wird bei jeder Aenderung `versionCode`, `versionName`, die sichtbare
-App-Version und das GitHub-Release angehoben.
+App-Version, der APK-Dateiname und das GitHub-Release angehoben.
+Release-APKs werden als `Router-Kill-Switch-vX.Y.Z.apk` benannt.
 
 ## Build
 

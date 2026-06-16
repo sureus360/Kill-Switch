@@ -48,8 +48,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
-    private static final String APP_NAME = "FritzBox Kill Switch";
-    private static final String APP_TITLE = "FRITZBOX KILL SWITCH";
+    private static final String APP_NAME = "Router Kill Switch";
+    private static final String APP_TITLE = "ROUTER KILL SWITCH";
     private static final int BG = Color.rgb(3, 7, 5);
     private static final int PANEL = Color.rgb(8, 18, 12);
     private static final int PANEL_ACTIVE = Color.rgb(10, 31, 18);
