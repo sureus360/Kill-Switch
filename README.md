@@ -16,6 +16,11 @@ verschluesselt und nicht aus dem Heimnetz gesendet.
 4. Kill Switch starten, `[ CONFIG ]` antippen und Router-Adresse, Benutzername
    und Passwort eingeben.
 
+Wenn die Geraeteliste funktioniert, das Sperren aber mit `Action Not Authorized`
+oder Fehler `606` abbricht, ist meistens der eingetragene FRITZ!Box-Benutzer der
+Grund. In `[ CONFIG ]` kann gezielt ein anderer FRITZ!Box-Benutzer eingetragen
+werden. Dieser Benutzer braucht App-Rechte fuer die TR-064-Sperraktion.
+
 Die Schaltflaeche `SPERREN` blockiert den WAN-/Internetzugriff. Das Geraet
 bleibt weiterhin mit dem lokalen LAN oder WLAN verbunden. Die App wartet nach
 einer Aktion auf die Bestaetigung der FRITZ!Box und zeigt nur einen geaenderten

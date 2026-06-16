@@ -291,6 +291,10 @@ final class FritzBoxClient {
         switch (code) {
             case "501":
                 return "Die Internetsperre ist im IP-Client-/Bridge-Modus der FRITZ!Box nicht verfuegbar.";
+            case "606":
+                return "Der eingetragene FRITZ!Box-Benutzer darf diese Sperraktion nicht ausfuehren. "
+                        + "Waehle in [ CONFIG ] einen Benutzer mit App-Rechten oder gib diesem "
+                        + "Benutzer in der FRITZ!Box die noetigen Rechte.";
             case "714":
                 return "Das Geraet wurde unter dieser IPv4-Adresse nicht mehr gefunden. Bitte neu scannen.";
             case "880":

@@ -583,8 +583,9 @@ public final class MainActivity extends Activity {
         form.setPadding(dp(24), dp(8), dp(24), 0);
 
         TextView hint = label(
-                "Lokale TR-064-Verbindung. Das Lesen kann auch ohne Schreibrecht "
-                        + "funktionieren. Zum Sperren braucht der Benutzer App-/Einstellungsrechte.",
+                "Lokale TR-064-Verbindung. Trage hier gezielt den FRITZ!Box-Benutzer ein, "
+                        + "der die App verwenden soll. Das Lesen kann auch ohne Schreibrecht "
+                        + "funktionieren; zum Sperren braucht der Benutzer App-Rechte.",
                 12,
                 Color.DKGRAY
         );
@@ -722,12 +723,24 @@ public final class MainActivity extends Activity {
         if (TextTools.isBlank(message)) {
             message = error.getClass().getSimpleName();
         }
-        new AlertDialog.Builder(this)
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setMessage(message + "\n\nPrüfe WLAN, Zugangsdaten und den aktivierten "
                         + "Zugriff für Anwendungen in der FRITZ!Box.")
-                .setPositiveButton("OK", null)
-                .show();
+                .setPositiveButton("OK", null);
+        if (looksLikeUserRightsProblem(message)) {
+            builder.setNegativeButton("CONFIG", (dialog, which) -> showSettingsDialog());
+        }
+        builder.show();
+    }
+
+    private boolean looksLikeUserRightsProblem(String message) {
+        String normalized = message.toLowerCase(Locale.GERMAN);
+        return normalized.contains("action not authorized")
+                || normalized.contains("606")
+                || normalized.contains("benutzer")
+                || normalized.contains("app-rechte")
+                || normalized.contains("einstellungsrechte");
     }
 
     private Button actionButton(String text, int borderColor) {

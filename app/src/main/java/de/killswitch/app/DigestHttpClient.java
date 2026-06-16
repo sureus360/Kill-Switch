@@ -11,6 +11,8 @@ import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class DigestHttpClient {
     private final String username;
@@ -42,7 +44,7 @@ final class DigestHttpClient {
             return first.body;
         }
         if (first.code != HttpURLConnection.HTTP_UNAUTHORIZED) {
-            throw new FritzException("HTTP " + first.code + ": " + compact(first.body));
+            throw new FritzException(soapFault(first.code, first.body));
         }
 
         String challenge = first.authenticate;
@@ -61,7 +63,7 @@ final class DigestHttpClient {
             );
         }
         if (second.code < 200 || second.code >= 300) {
-            throw new FritzException("HTTP " + second.code + ": " + soapFault(second.body));
+            throw new FritzException(soapFault(second.code, second.body));
         }
         return second.body;
     }
@@ -225,35 +227,49 @@ final class DigestHttpClient {
         }
     }
 
-    private static String soapFault(String body) {
-        String code = between(body, "<errorCode>", "</errorCode>");
-        String description = between(body, "<errorDescription>", "</errorDescription>");
+    private static String soapFault(int httpCode, String body) {
+        String code = xmlTagText(body, "errorCode");
+        String description = xmlTagText(body, "errorDescription");
         if (!TextTools.isBlank(code)) {
             switch (code) {
+                case "606":
+                    return "FRITZ!Box-Fehler 606: Action Not Authorized. "
+                            + "Der eingetragene FRITZ!Box-Benutzer darf diese Sperraktion nicht ausführen. "
+                            + "Wähle in [ CONFIG ] einen Benutzer mit App-Rechten oder gib diesem Benutzer "
+                            + "in der FRITZ!Box die nötigen Rechte.";
                 case "501":
-                    return "Internetsperre im IP-Client-/Bridge-Modus nicht verfuegbar";
+                    return "FRITZ!Box-Fehler 501: Internetsperre im IP-Client-/Bridge-Modus nicht verfügbar.";
                 case "714":
-                    return "Geraet unter dieser IPv4-Adresse nicht gefunden";
+                    return "FRITZ!Box-Fehler 714: Gerät unter dieser IPv4-Adresse nicht gefunden. Bitte neu scannen.";
                 case "880":
-                    return "Dieses FRITZ!OS-/Powerline-Geraet darf nicht gesperrt werden";
+                    return "FRITZ!Box-Fehler 880: Dieses FRITZ!OS-/Powerline-Gerät darf nicht gesperrt werden.";
                 case "402":
-                    return "Ungueltige Sperranfrage";
+                    return "FRITZ!Box-Fehler 402: Ungültige Sperranfrage.";
                 case "820":
-                    return "Interner Fehler der FRITZ!Box";
+                    return "FRITZ!Box-Fehler 820: Interner Fehler der FRITZ!Box.";
                 default:
                     break;
             }
         }
         if (!TextTools.isBlank(code) || !TextTools.isBlank(description)) {
-            return "TR-064 " + code + " " + description;
+            return "FRITZ!Box-Fehler " + code
+                    + (TextTools.isBlank(description) ? "" : ": " + description);
         }
-        return compact(body);
+        return "HTTP " + httpCode + ": " + compact(body);
     }
 
-    private static String between(String text, String start, String end) {
-        int first = text.indexOf(start);
-        int last = text.indexOf(end);
-        return first >= 0 && last > first ? text.substring(first + start.length(), last).trim() : "";
+    private static String xmlTagText(String xml, String localName) {
+        if (TextTools.isBlank(xml)) {
+            return "";
+        }
+        Pattern pattern = Pattern.compile(
+                "<(?:[A-Za-z0-9_.-]+:)?" + Pattern.quote(localName)
+                        + "(?:\\s[^>]*)?>(.*?)</(?:[A-Za-z0-9_.-]+:)?"
+                        + Pattern.quote(localName) + ">",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL
+        );
+        Matcher matcher = pattern.matcher(xml);
+        return matcher.find() ? matcher.group(1).replaceAll("\\s+", " ").trim() : "";
     }
 
     private static String compact(String value) {
