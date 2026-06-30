@@ -45,9 +45,15 @@ final class SecureSettings {
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), new GCMParameterSpec(128, iv));
             JSONObject json = new JSONObject(new String(
                     cipher.doFinal(payload),
-                    StandardCharsets.UTF_8
+                StandardCharsets.UTF_8
             ));
-            return new Settings(host, json.optString("username"), json.optString("password"));
+            return new Settings(
+                    host,
+                    json.optString("username"),
+                    json.optString("password"),
+                    json.optString("backendUrl"),
+                    json.optString("backendToken")
+            );
         } catch (Exception ignored) {
             return new Settings(host, "", "");
         }
@@ -57,6 +63,8 @@ final class SecureSettings {
         JSONObject json = new JSONObject();
         json.put("username", settings.username);
         json.put("password", settings.password);
+        json.put("backendUrl", settings.backendUrl);
+        json.put("backendToken", settings.backendToken);
 
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey());
@@ -95,14 +103,30 @@ final class SecureSettings {
         final String host;
         final String username;
         final String password;
+        final String backendUrl;
+        final String backendToken;
 
         Settings(String host, String username, String password) {
+            this(host, username, password, "", "");
+        }
+
+        Settings(String host, String username, String password, String backendUrl, String backendToken) {
             this.host = TextTools.isBlank(host) ? "fritz.box" : host.trim();
             this.username = username == null ? "" : username.trim();
             this.password = password == null ? "" : password;
+            this.backendUrl = backendUrl == null ? "" : backendUrl.trim();
+            this.backendToken = backendToken == null ? "" : backendToken.trim();
+        }
+
+        boolean usesBackend() {
+            return !TextTools.isBlank(backendUrl);
         }
 
         boolean isComplete() {
+            if (usesBackend()) {
+                return !TextTools.isBlank(backendUrl)
+                        && !TextTools.isBlank(backendToken);
+            }
             return !TextTools.isBlank(host)
                     && !TextTools.isBlank(username)
                     && !TextTools.isBlank(password);

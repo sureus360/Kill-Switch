@@ -1,0 +1,11 @@
+services:
+  router-kill-switch:
+    build: .
+    container_name: router-kill-switch
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./data:/data

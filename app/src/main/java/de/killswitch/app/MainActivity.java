@@ -104,7 +104,10 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        UnlockScheduler.rescheduleAll(this);
+        SecureSettings.Settings settings = secureSettings == null ? null : secureSettings.load();
+        if (settings != null && settings.isComplete() && !settings.usesBackend()) {
+            UnlockScheduler.rescheduleAll(this);
+        }
     }
 
     @Override
@@ -315,14 +318,18 @@ public final class MainActivity extends Activity {
         setBusy(true, "● VERBINDE...");
         executor.execute(() -> {
             try {
-                List<NetworkDevice> loaded = new FritzBoxClient(settings).loadDevices();
+                List<NetworkDevice> loaded = settings.usesBackend()
+                        ? new BackendClient(settings).loadDevices()
+                        : new FritzBoxClient(settings).loadDevices();
                 runOnUiThread(() -> {
                     allDevices.clear();
                     allDevices.addAll(loaded);
                     Set<String> currentKeys = new HashSet<>();
                     for (NetworkDevice device : loaded) {
                         currentKeys.add(device.key());
-                        if (!device.blocked && UnlockScheduler.getUnlockAt(this, device.key()) > 0) {
+                        if (!settings.usesBackend()
+                                && !device.blocked
+                                && UnlockScheduler.getUnlockAt(this, device.key()) > 0) {
                             UnlockScheduler.cancel(this, device.key());
                         }
                     }
@@ -470,22 +477,29 @@ public final class MainActivity extends Activity {
             List<String> succeeded = new ArrayList<>();
             List<String> failures = new ArrayList<>();
             try {
-                FritzBoxClient client = new FritzBoxClient(settings);
-                for (NetworkDevice device : devices) {
-                    try {
-                        client.setBlocked(device, blocked);
-                        succeeded.add(device.key());
+                if (settings.usesBackend()) {
+                    BackendClient.ActionResult result = new BackendClient(settings)
+                            .setBlocked(devices, blocked, unlockAt);
+                    succeeded.addAll(result.succeededKeys);
+                    failures.addAll(result.failures);
+                } else {
+                    FritzBoxClient client = new FritzBoxClient(settings);
+                    for (NetworkDevice device : devices) {
                         try {
-                            if (blocked && unlockAt > 0) {
-                                UnlockScheduler.schedule(this, device, unlockAt);
-                            } else {
-                                UnlockScheduler.cancel(this, device.key());
+                            client.setBlocked(device, blocked);
+                            succeeded.add(device.key());
+                            try {
+                                if (blocked && unlockAt > 0) {
+                                    UnlockScheduler.schedule(this, device, unlockAt);
+                                } else {
+                                    UnlockScheduler.cancel(this, device.key());
+                                }
+                            } catch (Exception scheduleError) {
+                                failures.add(device.name + ": Timer konnte nicht gespeichert werden");
                             }
-                        } catch (Exception scheduleError) {
-                            failures.add(device.name + ": Timer konnte nicht gespeichert werden");
+                        } catch (Exception error) {
+                            failures.add(device.name + ": " + safeMessage(error));
                         }
-                    } catch (Exception error) {
-                        failures.add(device.name + ": " + safeMessage(error));
                     }
                 }
             } catch (Exception error) {
@@ -494,7 +508,7 @@ public final class MainActivity extends Activity {
 
             runOnUiThread(() -> {
                 for (String key : succeeded) {
-                    replaceDevice(key, blocked);
+                    replaceDevice(key, blocked, blocked ? unlockAt : 0);
                     selectedDeviceKeys.remove(key);
                 }
                 setBusy(false, failures.isEmpty() ? "● ONLINE" : "● AKTION TEILWEISE FEHLGESCHLAGEN");
@@ -507,8 +521,11 @@ public final class MainActivity extends Activity {
                             Toast.LENGTH_LONG
                     ).show();
                 }
-                if (blocked && unlockAt > 0 && !succeeded.isEmpty()) {
+                if (!settings.usesBackend() && blocked && unlockAt > 0 && !succeeded.isEmpty()) {
                     requestExactAlarmAccessIfNeeded();
+                }
+                if (settings.usesBackend() && !succeeded.isEmpty()) {
+                    refreshDevices();
                 }
                 if (!failures.isEmpty()) {
                     showError("AKTION FEHLGESCHLAGEN", new FritzException(joinFailures(failures)));
@@ -528,10 +545,22 @@ public final class MainActivity extends Activity {
     }
 
     private void replaceDevice(String key, boolean blocked) {
+        replaceDevice(key, blocked, 0);
+    }
+
+    private void replaceDevice(String key, boolean blocked, long unlockAt) {
         for (int index = 0; index < allDevices.size(); index++) {
             NetworkDevice device = allDevices.get(index);
             if (device.key().equals(key)) {
-                allDevices.set(index, device.withBlocked(blocked));
+                allDevices.set(index, new NetworkDevice(
+                        device.name,
+                        device.ipAddress,
+                        device.macAddress,
+                        device.interfaceType,
+                        device.active,
+                        blocked,
+                        unlockAt
+                ));
                 return;
             }
         }
@@ -586,9 +615,9 @@ public final class MainActivity extends Activity {
         form.setPadding(dp(24), dp(8), dp(24), 0);
 
         TextView hint = label(
-                "Lokale TR-064-Verbindung. Trage hier exakt den FRITZ!Box-Benutzernamen ein, "
-                        + "der die App verwenden soll. Die App muss nicht zwingend in der "
-                        + "FRITZ!Box-App-Liste auftauchen; zum Sperren braucht dieser Benutzer App-Rechte.",
+                "Lokal: FRITZ!Box-Daten unten eintragen. Stabiler: Backend-URL und API-Token "
+                        + "vom Proxmox-Server eintragen; dann speichert das Handy keine Router-Zugangsdaten "
+                        + "und Timer laufen auf dem Server.",
                 12,
                 Color.DKGRAY
         );
@@ -598,9 +627,13 @@ public final class MainActivity extends Activity {
         EditText host = dialogField("Router-Adresse", current.host, false);
         EditText username = dialogField("Benutzername", current.username, false);
         EditText password = dialogField("Passwort", current.password, true);
+        EditText backendUrl = dialogField("Backend-URL optional, z.B. http://192.168.178.50:8765", current.backendUrl, false);
+        EditText backendToken = dialogField("Backend API-Token", current.backendToken, true);
         form.addView(host, wide(dp(54)));
         form.addView(username, wide(dp(54)));
         form.addView(password, wide(dp(54)));
+        form.addView(backendUrl, wide(dp(54)));
+        form.addView(backendToken, wide(dp(54)));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(APP_NAME + " v" + appVersionName())
@@ -613,10 +646,16 @@ public final class MainActivity extends Activity {
                     SecureSettings.Settings settings = new SecureSettings.Settings(
                             host.getText().toString(),
                             username.getText().toString(),
-                            password.getText().toString()
+                            password.getText().toString(),
+                            backendUrl.getText().toString(),
+                            backendToken.getText().toString()
                     );
                     if (!settings.isComplete()) {
-                        Toast.makeText(this, "Bitte alle Felder ausfüllen.", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(
+                                this,
+                                "Bitte lokale Router-Daten oder Backend-URL mit Token ausfüllen.",
+                                Toast.LENGTH_SHORT
+                        ).show();
                         return;
                     }
                     try {
@@ -728,8 +767,8 @@ public final class MainActivity extends Activity {
         }
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle(title)
-                .setMessage(message + "\n\nPrüfe WLAN, Zugangsdaten und den aktivierten "
-                        + "Zugriff für Anwendungen in der FRITZ!Box.")
+                .setMessage(message + "\n\nPrüfe WLAN, Backend-URL/API-Token oder die lokalen "
+                        + "Router-Zugangsdaten und den Zugriff für Anwendungen in der FRITZ!Box.")
                 .setPositiveButton("OK", null);
         if (looksLikeUserRightsProblem(message)) {
             builder.setNegativeButton("CONFIG", (dialog, which) -> showSettingsDialog());
@@ -842,7 +881,9 @@ public final class MainActivity extends Activity {
             String link = TextTools.isBlank(device.interfaceType)
                     ? "NETZWERK"
                     : device.interfaceType.toUpperCase(Locale.GERMAN);
-            long unlockAt = UnlockScheduler.getUnlockAt(MainActivity.this, device.key());
+            long unlockAt = device.unlockAt > 0
+                    ? device.unlockAt
+                    : UnlockScheduler.getUnlockAt(MainActivity.this, device.key());
             row.state.setText((device.active ? "● AKTIV" : "○ OFFLINE")
                     + "  //  " + link
                     + "  //  " + (device.blocked ? "WAN GESPERRT" : "WAN FREI")
