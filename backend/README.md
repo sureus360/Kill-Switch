@@ -12,6 +12,13 @@ zuverlaessiger ausfuehren.
 
 ## Schnellstart mit Docker Compose
 
+Voraussetzungen:
+
+- Docker Engine mit Compose-Plugin (`docker compose version`)
+- Der Server muss die FRITZ!Box lokal erreichen koennen, z.B. per LAN, WLAN,
+  VM-Bridge oder LXC-Bridge im Heimnetz.
+- In der FRITZ!Box muss `Zugriff fuer Anwendungen` aktiviert sein.
+
 ```bash
 cd backend
 cp .env.example .env
@@ -27,6 +34,12 @@ Wichtige Variablen:
 - `RKS_FRITZ_PASSWORD`: Passwort dieses FRITZ!Box-Benutzers
 - `RKS_PORT`: Standard `8765`
 
+Empfohlenes Token erzeugen:
+
+```bash
+openssl rand -hex 32
+```
+
 Healthcheck:
 
 ```bash
@@ -38,6 +51,36 @@ Geraete pruefen:
 ```bash
 curl -H "Authorization: Bearer DEIN_TOKEN" http://SERVER-IP:8765/devices
 ```
+
+Logs ansehen:
+
+```bash
+docker compose logs -f router-kill-switch
+```
+
+Backend aktualisieren:
+
+```bash
+git pull
+cd backend
+docker compose up -d --build
+```
+
+Backend stoppen:
+
+```bash
+cd backend
+docker compose down
+```
+
+Die SQLite-Datenbank fuer geplante Freigaben liegt persistent unter
+`backend/data/router-kill-switch.db`. Dieser Ordner wird durch
+`docker-compose.yml` als Volume in den Container gemountet.
+
+Wenn Sperren/Freigeben mit `FRITZ!Box-Fehler 401: Invalid Action` fehlschlaegt,
+stellt die FRITZ!Box/Firmware die benoetigte TR-064-HostFilter-Aktion nicht
+bereit. Dann FRITZ!OS aktualisieren oder ein Modell/Firmwarestand nutzen, dessen
+HostFilter-Dienst `DisallowWANAccessByIP` und `GetWANAccessByIP` anbietet.
 
 ## Android-App konfigurieren
 

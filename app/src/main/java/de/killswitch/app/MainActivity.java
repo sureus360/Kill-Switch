@@ -20,7 +20,9 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.inputmethod.EditorInfo;
@@ -72,6 +74,7 @@ public final class MainActivity extends Activity {
     private TextView status;
     private TextView summary;
     private TextView empty;
+    private TextView pullRefreshHint;
     private ProgressBar progress;
     private Button favoritesFilter;
     private Button allFilter;
@@ -82,6 +85,11 @@ public final class MainActivity extends Activity {
     private Button bulkClear;
     private boolean showFavoritesOnly;
     private boolean busy;
+    private float pullStartY;
+    private boolean pullTracking;
+    private boolean pullReady;
+    private int pullTouchSlop;
+    private int pullRefreshThreshold;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -120,6 +128,8 @@ public final class MainActivity extends Activity {
         ScanlineLayout root = new ScanlineLayout(this);
         root.setBackgroundColor(BG);
         root.setPadding(dp(14), dp(12), dp(14), dp(10));
+        pullTouchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
+        pullRefreshThreshold = dp(72);
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(
                     dp(14) + insets.getSystemWindowInsetLeft(),
@@ -177,6 +187,7 @@ public final class MainActivity extends Activity {
         listView.setDivider(null);
         listView.setPadding(dp(7), dp(7), dp(7), dp(7));
         listView.setClipToPadding(false);
+        listView.setOnTouchListener((view, event) -> handlePullToRefresh(event));
         adapter = new DeviceAdapter();
         listView.setAdapter(adapter);
         listContainer.addView(listView, match());
@@ -184,8 +195,26 @@ public final class MainActivity extends Activity {
         empty = label("Noch keine Geräte geladen", 14, MUTED);
         empty.setGravity(Gravity.CENTER);
         empty.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+        empty.setOnTouchListener((view, event) -> {
+            handlePullToRefresh(event);
+            return true;
+        });
         listContainer.addView(empty, match());
         listView.setEmptyView(empty);
+
+        pullRefreshHint = label("↓ ZIEHEN ZUM AKTUALISIEREN", 11, GREEN);
+        pullRefreshHint.setGravity(Gravity.CENTER);
+        pullRefreshHint.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        pullRefreshHint.setBackground(panelDrawable(GREEN_MUTED, 1, dp(4), PANEL_ACTIVE));
+        pullRefreshHint.setVisibility(View.GONE);
+        pullRefreshHint.setAlpha(0f);
+        FrameLayout.LayoutParams pullHintParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(34),
+                Gravity.TOP
+        );
+        pullHintParams.setMargins(dp(8), dp(8), dp(8), 0);
+        listContainer.addView(pullRefreshHint, pullHintParams);
 
         content.addView(buildBulkBar());
         content.addView(buildFooter());
@@ -345,6 +374,72 @@ public final class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    private boolean handlePullToRefresh(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            pullStartY = event.getY();
+            pullTracking = !busy && isListPulledToTop();
+            pullReady = false;
+            return false;
+        }
+        if (!pullTracking) {
+            return false;
+        }
+        if (action == MotionEvent.ACTION_MOVE) {
+            if (busy || !isListPulledToTop()) {
+                resetPullRefresh();
+                return false;
+            }
+            float distance = event.getY() - pullStartY;
+            if (distance <= 0) {
+                resetPullRefresh();
+                return false;
+            }
+            if (distance < pullTouchSlop) {
+                return false;
+            }
+            updatePullRefresh(distance);
+            return true;
+        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            boolean shouldRefresh = action == MotionEvent.ACTION_UP && pullReady && !busy;
+            boolean consumed = pullRefreshHint != null && pullRefreshHint.getVisibility() == View.VISIBLE;
+            resetPullRefresh();
+            if (shouldRefresh) {
+                refreshDevices();
+            }
+            return consumed;
+        }
+        return false;
+    }
+
+    private boolean isListPulledToTop() {
+        if (listView == null || listView.getChildCount() == 0) {
+            return true;
+        }
+        return listView.getFirstVisiblePosition() == 0
+                && listView.getChildAt(0).getTop() >= listView.getPaddingTop();
+    }
+
+    private void updatePullRefresh(float distance) {
+        if (pullRefreshHint == null) {
+            return;
+        }
+        pullReady = distance >= pullRefreshThreshold;
+        pullRefreshHint.setText(pullReady ? "↻ LOSLASSEN ZUM SCAN" : "↓ ZIEHEN ZUM AKTUALISIEREN");
+        pullRefreshHint.setAlpha(Math.min(1f, distance / pullRefreshThreshold));
+        pullRefreshHint.setVisibility(View.VISIBLE);
+    }
+
+    private void resetPullRefresh() {
+        pullTracking = false;
+        pullReady = false;
+        if (pullRefreshHint != null) {
+            pullRefreshHint.setVisibility(View.GONE);
+            pullRefreshHint.setAlpha(0f);
+        }
     }
 
     private void changeBlocked(NetworkDevice device, boolean blocked) {
@@ -747,6 +842,9 @@ public final class MainActivity extends Activity {
 
     private void setBusy(boolean isBusy, String statusText) {
         busy = isBusy;
+        if (isBusy) {
+            resetPullRefresh();
+        }
         progress.setVisibility(isBusy ? View.VISIBLE : View.GONE);
         status.setText(statusText);
         status.setTextColor(statusText.contains("ONLINE") ? GREEN : statusText.contains("FEHL") ? RED : GREEN_MUTED);
@@ -765,15 +863,32 @@ public final class MainActivity extends Activity {
         if (TextTools.isBlank(message)) {
             message = error.getClass().getSimpleName();
         }
+        String hint = errorHint(message);
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle(title)
-                .setMessage(message + "\n\nPrüfe WLAN, Backend-URL/API-Token oder die lokalen "
-                        + "Router-Zugangsdaten und den Zugriff für Anwendungen in der FRITZ!Box.")
+                .setMessage(TextTools.isBlank(hint) ? message : message + "\n\n" + hint)
                 .setPositiveButton("OK", null);
         if (looksLikeUserRightsProblem(message)) {
             builder.setNegativeButton("CONFIG", (dialog, which) -> showSettingsDialog());
         }
         builder.show();
+    }
+
+    private String errorHint(String message) {
+        if (looksLikeUnsupportedActionProblem(message)) {
+            return "Das ist kein Passwortfehler: Die Geräteliste kann trotzdem funktionieren, "
+                    + "aber Sperren/Freigeben braucht die HostFilter-Aktionen der FRITZ!Box.";
+        }
+        return "Prüfe WLAN, Backend-URL/API-Token oder die lokalen Router-Zugangsdaten "
+                + "und den Zugriff für Anwendungen in der FRITZ!Box.";
+    }
+
+    private boolean looksLikeUnsupportedActionProblem(String message) {
+        String normalized = message.toLowerCase(Locale.GERMAN);
+        return normalized.contains("invalid action")
+                || normalized.contains("tr-064-aktion")
+                || normalized.contains("hostfilter-aktion")
+                || normalized.contains("hostfilter-dienst");
     }
 
     private boolean looksLikeUserRightsProblem(String message) {

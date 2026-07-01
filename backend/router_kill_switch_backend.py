@@ -14,8 +14,10 @@ import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 RETRY_DELAY_SECONDS = 300
+ACTION_DISALLOW_WAN_BY_IP = "DisallowWANAccessByIP"
+ACTION_GET_WAN_BY_IP = "GetWANAccessByIP"
 
 
 def blank(value):
@@ -116,12 +118,14 @@ class FritzClient:
 
     def set_blocked(self, device, blocked):
         self._discover_services()
+        self._require_action(self.host_filter_service, ACTION_DISALLOW_WAN_BY_IP)
+        self._require_action(self.host_filter_service, ACTION_GET_WAN_BY_IP)
         target_ip = self._resolve_current_ip(device)
         if blank(target_ip):
             raise RuntimeError("Das Geraet hat keine IPv4-Adresse.")
         self._soap(
             self.host_filter_service,
-            "DisallowWANAccessByIP",
+            ACTION_DISALLOW_WAN_BY_IP,
             {"NewIPv4Address": target_ip, "NewDisallow": "1" if blocked else "0"},
         )
 
@@ -154,9 +158,10 @@ class FritzClient:
             return device.get("ipAddress", "")
 
     def _get_access_state(self, ip_address):
+        self._require_action(self.host_filter_service, ACTION_GET_WAN_BY_IP)
         response = self._soap(
             self.host_filter_service,
-            "GetWANAccessByIP",
+            ACTION_GET_WAN_BY_IP,
             {"NewIPv4Address": ip_address},
         )
         wan_access = xml_text(response, "NewWANAccess")
@@ -177,9 +182,14 @@ class FritzClient:
                 continue
             service_type = child_text(service, "serviceType")
             control_url = child_text(service, "controlURL")
+            scpd_url = child_text(service, "SCPDURL")
             item = {
                 "type": service_type,
                 "controlUrl": urllib.parse.urljoin(self.base_url + "/", control_url.lstrip("/")),
+                "scpdUrl": ""
+                if blank(scpd_url)
+                else urllib.parse.urljoin(self.base_url + "/", scpd_url.lstrip("/")),
+                "actions": None,
             }
             if ":Hosts:" in service_type:
                 self.hosts_service = item
@@ -207,14 +217,37 @@ class FritzClient:
                 "Content-Type": 'text/xml; charset="utf-8"',
                 "SOAPAction": f'"{service["type"]}#{action}"',
             },
+            action,
         )
         root = parse_xml(response)
         error_code = xml_text(root, "errorCode")
         if not blank(error_code):
-            raise RuntimeError(action_failure(error_code, xml_text(root, "errorDescription")))
+            raise RuntimeError(action_failure(error_code, xml_text(root, "errorDescription"), action))
         return root
 
-    def _request(self, method, url, body, headers):
+    def _require_action(self, service, action):
+        if service.get("actions") is None:
+            service["actions"] = self._load_action_names(service)
+        if service["actions"] and action not in service["actions"]:
+            raise RuntimeError(unsupported_action_message(action))
+
+    def _load_action_names(self, service):
+        scpd_url = service.get("scpdUrl", "")
+        if blank(scpd_url):
+            return []
+        try:
+            root = parse_xml(self._request("GET", scpd_url, None, None))
+            actions = []
+            for element in root.iter():
+                if element.tag.split("}")[-1].split(":")[-1] == "action":
+                    name = child_text(element, "name")
+                    if not blank(name):
+                        actions.append(name)
+            return actions
+        except Exception:
+            return []
+
+    def _request(self, method, url, body, headers, fault_action=None):
         request = urllib.request.Request(url, data=body, method=method)
         request.add_header("Accept", "text/xml, application/xml, */*")
         for key, value in (headers or {}).items():
@@ -224,7 +257,7 @@ class FritzClient:
                 return response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as error:
             body_text = error.read().decode("utf-8", errors="replace")
-            raise RuntimeError(soap_fault(error.code, body_text))
+            raise RuntimeError(soap_fault(error.code, body_text, fault_action))
 
 
 def escape_xml(value):
@@ -238,19 +271,21 @@ def escape_xml(value):
     )
 
 
-def soap_fault(http_code, body):
+def soap_fault(http_code, body, action=None):
     try:
         root = parse_xml(body)
         code = xml_text(root, "errorCode")
         description = xml_text(root, "errorDescription")
         if not blank(code):
-            return action_failure(code, description)
+            return action_failure(code, description, action)
     except Exception:
         pass
     return f"HTTP {http_code}: {compact(body)}"
 
 
-def action_failure(code, description):
+def action_failure(code, description, action=None):
+    if code == "401":
+        return unsupported_action_message(action)
     if code == "606":
         return (
             "FRITZ!Box-Fehler 606: Action Not Authorized. Der FRITZ!Box-Benutzer des Backends "
@@ -267,6 +302,20 @@ def action_failure(code, description):
     if code == "820":
         return "FRITZ!Box-Fehler 820: Interner Fehler der FRITZ!Box."
     return "FRITZ!Box-Fehler " + code + ("" if blank(description) else ": " + description)
+
+
+def unsupported_action_message(action=None):
+    action_text = (
+        "die benoetigte TR-064-HostFilter-Aktion"
+        if blank(action)
+        else f"die TR-064-Aktion {action}"
+    )
+    return (
+        "FRITZ!Box-Fehler 401: Invalid Action. Diese FRITZ!Box/Firmware stellt "
+        + action_text
+        + " nicht bereit. Aktualisiere FRITZ!OS oder nutze eine FRITZ!Box, deren "
+        + "X_AVM-DE_HostFilter-Dienst DisallowWANAccessByIP und GetWANAccessByIP anbietet."
+    )
 
 
 def device_key(device):
