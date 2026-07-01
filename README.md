@@ -1,6 +1,6 @@
 # Router Kill Switch
 
-Aktuelle Version: `1.2.0`
+Aktuelle Version: `1.2.2`
 
 Native Android-App zum Sperren und Entsperren des Internetzugriffs von
 Netzwerkgeraeten an einer FRITZ!Box. Die App nutzt ausschliesslich die lokale
@@ -28,10 +28,39 @@ Der empfohlene stabile Betrieb ist ein Backend auf Proxmox, Docker, VM oder LXC.
 Das Backend bleibt im Heimnetz dauerhaft erreichbar, fuehrt die TR-064-Aktionen
 aus und speichert geplante Freigaben in SQLite.
 
+Voraussetzungen:
+
+- Docker Engine mit Compose-Plugin
+- Server im Heimnetz oder per VPN/Bridge mit Zugriff auf die FRITZ!Box
+- FRITZ!Box-Benutzer mit App-/TR-064-Rechten
+
 ```bash
 cd backend
 cp .env.example .env
 nano .env
+docker compose up -d --build
+```
+
+In `.env` muessen mindestens `RKS_TOKEN`, `RKS_FRITZ_USER` und
+`RKS_FRITZ_PASSWORD` angepasst werden. Ein Token kann z.B. so erzeugt werden:
+
+```bash
+openssl rand -hex 32
+```
+
+Pruefen:
+
+```bash
+curl http://SERVER-IP:8765/health
+curl -H "Authorization: Bearer DEIN_TOKEN" http://SERVER-IP:8765/devices
+docker compose logs -f router-kill-switch
+```
+
+Aktualisieren:
+
+```bash
+git pull
+cd backend
 docker compose up -d --build
 ```
 
@@ -42,12 +71,19 @@ Danach in der Android-App unter `[ CONFIG ]` eintragen:
 
 Wenn eine Backend-URL gesetzt ist, nutzt die App das Backend und ignoriert die
 lokalen FRITZ!Box-Zugangsdaten auf dem Handy. Das Backend sollte nur im Heimnetz
-oder ueber VPN erreichbar sein.
+oder ueber VPN erreichbar sein. Ausfuehrlichere Docker-Hinweise stehen in
+[`backend/README.md`](backend/README.md).
 
 Wenn die Geraeteliste funktioniert, das Sperren aber mit `Action Not Authorized`
 oder Fehler `606` abbricht, ist meistens der eingetragene FRITZ!Box-Benutzer der
 Grund. In `[ CONFIG ]` kann gezielt ein anderer FRITZ!Box-Benutzer eingetragen
 werden. Dieser Benutzer braucht App-Rechte fuer die TR-064-Sperraktion.
+
+Wenn das Sperren mit `FRITZ!Box-Fehler 401: Invalid Action` abbricht, meldet die
+FRITZ!Box, dass ihr aktueller TR-064-HostFilter-Dienst die benoetigte Aktion
+`DisallowWANAccessByIP` nicht anbietet. In diesem Fall FRITZ!OS aktualisieren
+oder ein FRITZ!Box-Modell/Firmwarestand nutzen, dessen HostFilter-Dienst
+`DisallowWANAccessByIP` und `GetWANAccessByIP` bereitstellt.
 
 Die App meldet sich direkt per lokaler TR-064-Schnittstelle an. Sie muss deshalb
 nicht zwingend in der FRITZ!Box-Liste `Apps` auftauchen. Entscheidend ist, dass

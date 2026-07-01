@@ -44,7 +44,7 @@ final class DigestHttpClient {
             return first.body;
         }
         if (first.code != HttpURLConnection.HTTP_UNAUTHORIZED) {
-            throw new FritzException(soapFault(first.code, first.body));
+            throw new FritzException(soapFault(first.code, first.body, actionName(soapAction)));
         }
 
         String challenge = first.authenticate;
@@ -63,7 +63,7 @@ final class DigestHttpClient {
             );
         }
         if (second.code < 200 || second.code >= 300) {
-            throw new FritzException(soapFault(second.code, second.body));
+            throw new FritzException(soapFault(second.code, second.body, actionName(soapAction)));
         }
         return second.body;
     }
@@ -227,11 +227,13 @@ final class DigestHttpClient {
         }
     }
 
-    private static String soapFault(int httpCode, String body) {
+    private static String soapFault(int httpCode, String body, String action) {
         String code = xmlTagText(body, "errorCode");
         String description = xmlTagText(body, "errorDescription");
         if (!TextTools.isBlank(code)) {
             switch (code) {
+                case "401":
+                    return unsupportedActionMessage(action);
                 case "606":
                     return "FRITZ!Box-Fehler 606: Action Not Authorized. "
                             + "Der eingetragene FRITZ!Box-Benutzer darf diese Sperraktion nicht ausführen. "
@@ -256,6 +258,27 @@ final class DigestHttpClient {
                     + (TextTools.isBlank(description) ? "" : ": " + description);
         }
         return "HTTP " + httpCode + ": " + compact(body);
+    }
+
+    private static String actionName(String soapAction) {
+        if (TextTools.isBlank(soapAction)) {
+            return "";
+        }
+        int hash = soapAction.lastIndexOf('#');
+        if (hash < 0 || hash == soapAction.length() - 1) {
+            return "";
+        }
+        return soapAction.substring(hash + 1);
+    }
+
+    private static String unsupportedActionMessage(String action) {
+        String actionText = TextTools.isBlank(action)
+                ? "die benötigte TR-064-HostFilter-Aktion"
+                : "die TR-064-Aktion " + action;
+        return "FRITZ!Box-Fehler 401: Invalid Action. Diese FRITZ!Box/Firmware stellt "
+                + actionText
+                + " nicht bereit. Aktualisiere FRITZ!OS oder nutze eine FRITZ!Box, deren "
+                + "X_AVM-DE_HostFilter-Dienst DisallowWANAccessByIP und GetWANAccessByIP anbietet.";
     }
 
     private static String xmlTagText(String xml, String localName) {

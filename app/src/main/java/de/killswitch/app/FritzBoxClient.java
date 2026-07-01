@@ -24,6 +24,8 @@ import javax.xml.parsers.ParserConfigurationException;
 final class FritzBoxClient {
     private static final long ACCESS_CHANGE_TIMEOUT_MS = 20_000;
     private static final long ACCESS_CHANGE_POLL_MS = 750;
+    private static final String ACTION_DISALLOW_WAN_BY_IP = "DisallowWANAccessByIP";
+    private static final String ACTION_GET_WAN_BY_IP = "GetWANAccessByIP";
 
     private final String baseUrl;
     private final DigestHttpClient http;
@@ -79,6 +81,8 @@ final class FritzBoxClient {
 
     void setBlocked(NetworkDevice device, boolean blocked) throws Exception {
         discoverServices();
+        requireAction(hostFilterService, ACTION_DISALLOW_WAN_BY_IP);
+        requireAction(hostFilterService, ACTION_GET_WAN_BY_IP);
         String targetIp = resolveCurrentIp(device);
         if (TextTools.isBlank(targetIp)) {
             throw new FritzException("Das Geraet hat keine IPv4-Adresse.");
@@ -88,7 +92,7 @@ final class FritzBoxClient {
         arguments.put("NewDisallow", blocked ? "1" : "0");
         soap(
                 hostFilterService,
-                "DisallowWANAccessByIP",
+                ACTION_DISALLOW_WAN_BY_IP,
                 arguments
         );
 
@@ -134,9 +138,10 @@ final class FritzBoxClient {
     }
 
     private AccessState getAccessState(String ipAddress) throws Exception {
+        requireAction(hostFilterService, ACTION_GET_WAN_BY_IP);
         Document access = soap(
                 hostFilterService,
-                "GetWANAccessByIP",
+                ACTION_GET_WAN_BY_IP,
                 Collections.singletonMap("NewIPv4Address", ipAddress)
         );
         String wanAccess = text(access, "NewWANAccess");
@@ -160,7 +165,8 @@ final class FritzBoxClient {
             Element serviceElement = (Element) serviceNodes.item(index);
             String type = childText(serviceElement, "serviceType");
             String controlUrl = childText(serviceElement, "controlURL");
-            Service service = new Service(type, absoluteUrl(controlUrl));
+            String scpdUrl = childText(serviceElement, "SCPDURL");
+            Service service = new Service(type, absoluteUrl(controlUrl), absoluteUrl(scpdUrl));
             if (type.contains(":Hosts:")) {
                 hostsService = service;
             } else if (type.contains("X_AVM-DE_HostFilter")) {
@@ -196,7 +202,40 @@ final class FritzBoxClient {
         return response;
     }
 
+    private void requireAction(Service service, String action) throws Exception {
+        if (service.actions == null) {
+            service.actions = loadActionNames(service);
+        }
+        if (!service.actions.isEmpty() && !service.actions.contains(action)) {
+            throw new FritzException(unsupportedActionMessage(action));
+        }
+    }
+
+    private List<String> loadActionNames(Service service) {
+        if (TextTools.isBlank(service.scpdUrl)) {
+            return Collections.emptyList();
+        }
+        try {
+            Document scpd = parse(http.get(service.scpdUrl));
+            NodeList actionNodes = scpd.getElementsByTagNameNS("*", "action");
+            List<String> actions = new ArrayList<>();
+            for (int index = 0; index < actionNodes.getLength(); index++) {
+                Element actionElement = (Element) actionNodes.item(index);
+                String name = childText(actionElement, "name");
+                if (!TextTools.isBlank(name)) {
+                    actions.add(name);
+                }
+            }
+            return actions;
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
+    }
+
     private String absoluteUrl(String path) {
+        if (TextTools.isBlank(path)) {
+            return "";
+        }
         if (path.startsWith("http://") || path.startsWith("https://")) {
             return path;
         }
@@ -289,6 +328,8 @@ final class FritzBoxClient {
 
     private static String actionFailure(String code, String description) {
         switch (code) {
+            case "401":
+                return unsupportedActionMessage("");
             case "501":
                 return "Die Internetsperre ist im IP-Client-/Bridge-Modus der FRITZ!Box nicht verfuegbar.";
             case "606":
@@ -310,6 +351,16 @@ final class FritzBoxClient {
         }
     }
 
+    private static String unsupportedActionMessage(String action) {
+        String actionText = TextTools.isBlank(action)
+                ? "die benoetigte TR-064-HostFilter-Aktion"
+                : "die TR-064-Aktion " + action;
+        return "FRITZ!Box-Fehler 401: Invalid Action. Diese FRITZ!Box/Firmware stellt "
+                + actionText
+                + " nicht bereit. Aktualisiere FRITZ!OS oder nutze eine FRITZ!Box, deren "
+                + "X_AVM-DE_HostFilter-Dienst DisallowWANAccessByIP und GetWANAccessByIP anbietet.";
+    }
+
     private static final class AccessState {
         final boolean disallowed;
         final boolean blocked;
@@ -323,10 +374,13 @@ final class FritzBoxClient {
     private static final class Service {
         final String type;
         final String controlUrl;
+        final String scpdUrl;
+        List<String> actions;
 
-        Service(String type, String controlUrl) {
+        Service(String type, String controlUrl, String scpdUrl) {
             this.type = type;
             this.controlUrl = controlUrl;
+            this.scpdUrl = scpdUrl;
         }
     }
 }
